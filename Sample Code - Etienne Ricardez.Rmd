@@ -1,0 +1,222 @@
+---
+title: "Local Institutions in Economic Development: The Effect of Juntas Auxiliares in Puebla, Mexico"
+author: "Etienne Ricardez"
+date: "7/May/2024"
+output: html_document
+---
+
+# Introduction and context
+
+This is the code I developed for an Economic History course project within the Master’s program in Economics at the University of British Columbia. It evaluates the impact of a local institution known as 'Juntas Auxiliares' on the economic development at the municipalities level in the state of Puebla, Mexico. Below is a brief walkthrough of the code used for this project. You can access the full article here: https://drive.google.com/file/d/1q-JoRTzJ4x7ccBQfr_Q87milcnh-A-is/view?usp=drive_link
+
+# Abstract
+
+This study investigates the effect of Juntas Auxiliares, a local governance institutions unique to the state of Puebla, Mexico, on the economic development at the municipality level. I gather information of the number of Juntas Auxiliares in 172 municipalities of Puebla and used administrative public data to measure the impact of Juntas Auxiliares on 2020 household income levels. Using territorial extension of each municipality as the instrument for the number of Juntas Auxiliares to solve for endogeneity and, defending the instrument with 31 falsification tests, I found that Juntas Auxiliares are significantly associated with a 2% increase in household income, indicating their positive contribution to local economic development
+
+```{r setup, include=FALSE}
+library(readr)
+```
+
+# Data 
+
+I compiled in one data set the following pieces of information:
+
+- Estimates of municipal
+income per household, which were available through the National Institute of Statistics and Geography (INEGI). Available in: https://en.www.inegi.org.mx/investigacion/icmm/2020/
+
+- Territoral extension of each municipality in Mexico. Available in: https://www.inegi.org.mx/programas/ccpv/2020/tableros/panorama/
+
+- Latitud, Longitud and Altitude of each municipality in Mexico. Available in (go to "Catálogos Predefinidos"): https://www.inegi.org.mx/app/ageeml/ 
+
+- Estimates of the indigenous population percentage by municipality in Mexico. Available in: https://www.inpi.gob.mx/indicadores2020/
+
+- And, for the number of Juntas Auxiliares in each municipality of Puebla, I conducted a detailed investigation across official municipal websites, contacted municipal headquarters, and reviewed various academic and journalistic publications. This effort enabled me to compile data on 172 out of the 215 municipalities in the state of Puebla, resulting in a total of 658 Juntas Auxiliares. It is important to note that not every municipality has the same number of Juntas Auxiliares; some have only one, while others have more than ten. This source of variation is exploited in this paper.
+
+```{r, message=FALSE}
+data_EH <- read_csv("Econ History - paper.csv")
+```
+
+Here are the labels for each variable to clarify the dataset.
+
+```{r, message=FALSE}
+library(Hmisc)
+
+label(data_EH$estado) <- "Name of state"
+label(data_EH$municipio) <- "Name of municipality"
+label(data_EH$juntas) <- "Number of Juntas Auxiliares in the municipality"
+label(data_EH$income2020) <- "Average household income of the municipality at the year 2020"
+label(data_EH$calculo_ind) <- "Type of calculation of indigenous population. 'm' means 'sample' and 'c' means 'census'"
+label(data_EH$pob_tot) <- "Total population"
+label(data_EH$pob_ind) <- "Indigenous population"
+label(data_EH$pob_no_ind) <- "Non-indigenous population"
+label(data_EH$no_esp) <- "Not specified"
+label(data_EH$por) <- "General percentage, should be 1"
+label(data_EH$por_ind) <- "Percentage of indigenous population"
+label(data_EH$por_no_ind) <- "Percentage of non-indigenous population"
+label(data_EH$por_no_esp) <- "Percentage not specified"
+label(data_EH$lat) <- "Latitude"
+label(data_EH$lon) <- "Longitude"
+label(data_EH$alt) <- "Altitude"
+label(data_EH$pob) <- "Population"
+label(data_EH$pob_male) <- "Male population"
+label(data_EH$pob_female) <- "Female population"
+label(data_EH$houses) <- "Number of houses"
+label(data_EH$ext) <- "Territorial extension (sq km)"
+label(data_EH$porcentaje_ext) <- "What percentage of the territory of the state represents the municipality"
+label(data_EH$densidad) <- "Population density (hab/km2)"
+label(data_EH$localidades) <- "Number of localities"
+```
+
+Just verifying that all labels are okay:
+
+```{r}
+sapply(data_EH, label)
+```
+
+# Methodology
+
+First, let's measure the impact of the number of Juntas Auxiliares on household income using simple OLS with different model specifications.
+
+```{r}
+OLS_a <- lm(income2020 ~ juntas, data = data_EH)
+OLS_b <- lm(income2020 ~ juntas + lat + lon + alt, data = data_EH)
+OLS_c <- lm(income2020 ~ juntas + lat + lon + alt + por_ind, data = data_EH)
+OLS_d <- lm(income2020 ~ juntas + lat + lon + alt + por_ind + juntas:por_ind, data = data_EH)
+```
+
+```{r}
+mean_dependent_var <- mean(data_EH$income2020[!is.na(data_EH$juntas)])
+```
+
+```{r}
+library(stargazer)
+```
+
+```{r}
+stargazer(OLS_a, OLS_b, OLS_c, OLS_d, type = "text",
+          title = "OLS - Results",
+          align = TRUE,
+          header = FALSE,
+          dep.var.labels.include = FALSE,
+          covariate.labels = c("Juntas", "Latitude", "Longitude", "Altitude", "Percentage Indigenous", "Juntas:Percentage Indigenous"),
+          omit.stat = c("LL", "ser", "f"),
+          model.names = FALSE,
+          omit = "Constant",
+          add.lines = list(c("Mean of Dependent Variable", format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4))))
+```
+
+However, this model presents an endogeneity problem: higher or lower income may cause the community to demand more Juntas Auxiliares and Juntas Auxiliares may cause conditions that affect  income. In other words, there could be a reverse causality issue.
+
+# Solving the endogenity: IV
+
+In order to solve the endogeneity problem, I use territorial extension of each municipality as instrument for the number of Juntas Auxiliares. 
+
+To analyse the relationship between Juntas Auxiliares and Territorial extension, here are the results of the first stage.
+
+```{r}
+First_a <- lm(juntas ~ ext, data = data_EH)
+First_b <- lm(juntas ~ ext + lat + lon + alt, data = data_EH)
+First_c <- lm(juntas ~ ext + lat + lon + alt + por_ind, data = data_EH)
+```
+
+```{r}
+mean_dependent_var_re <- mean(data_EH$juntas[!is.na(data_EH$juntas)])
+```
+
+```{r}
+stargazer(First_a, First_b, First_c, type = "text",
+          title = "First Stage - Results",
+          align = TRUE,
+          header = FALSE,
+          dep.var.labels.include = FALSE,
+          covariate.labels = c("Juntas", "Latitude", "Longitude", "Altitude", "Percentage Indigenous", "Juntas:Percentage Indigenous"),
+          omit.stat = c("LL", "ser"),
+          model.names = FALSE,
+          add.lines = list(c("Mean of Dependent Variable", format(mean_dependent_var_re, digits=4), format(mean_dependent_var_re, digits=4), format(mean_dependent_var_re, digits=4), format(mean_dependent_var_re, digits=4), format(mean_dependent_var_re, digits=4))))
+```
+From the first stage is important to mention the following: the instrument has a lot of predictable power for the endogenous variable, especially without any control. With an F-statistic of 27.87, it can be argued that this is an strong instrument.
+
+In other concerns, there might be a serious problem regarding territorial extent as an instrument; it might be that territorial extent affects income, potentially violating the exogeneity and excludability condition.
+
+# Defending the instrument: 31 falsification tests
+
+In order to defend the instrument condition I had the following idea: if territorial extension of another state’s municipalities doesn’t have an impact on income, I can argue the validity of the instrument. 
+
+However, I could test this idea on more than one state since I have data for municipalities from all 32 states of Mexico. Therefore, I decided to conduct 31 falsification tests. 
+
+```{r, message=FALSE}
+library(broom)
+library(dplyr)
+```
+
+```{r}
+lista_estados <- split(data_EH, data_EH$estado)
+
+modelos <- lapply(lista_estados, function(subconjunto) {
+  lm(income2020 ~ ext, data = subconjunto)
+})
+
+obs_por_modelo <- sapply(modelos, function(x) length(x$residuals))
+
+tidy_modelos <- lapply(names(modelos), function(nombre) {
+  modelo_tidy <- tidy(modelos[[nombre]])
+  modelo_tidy <- modelo_tidy[modelo_tidy$term == "ext",]
+  modelo_tidy$Observations <- obs_por_modelo[nombre]
+  modelo_tidy$Estado <- nombre
+  modelo_tidy
+})
+
+resultados <- do.call(rbind, tidy_modelos)
+
+resultados_finales <- resultados %>%
+  select(Estado, Coefficient = estimate, Std.Errors = std.error, p.values = p.value, Observations)
+```
+
+```{r, results='asis', pander.max.rows = 200}
+library(pander)
+pander(resultados_finales)
+```
+
+
+
+Only 5 out of the 32 Mexican states exhibit a statistically significant relationship between territorial extension and income household (Chihuahua, Puebla, San Luis Potosí, Sonora, and Yucatán), suggesting that, in most cases, territorial extension does not impact income. 
+
+This evidence supports the validity of the instrument, reinforcing the idea of using territorial extent as an instrumental variable for number of Juntas Auxiliares. The lack of widespread significance across the states reinforces the argument that observable and unobserved factors of income are unlikely to be systematically correlated with territorial extension, allowing for a more confident interpretation of the causal effects in the analysis.
+
+# Using the IV
+
+```{r, message=FALSE}
+library(AER)
+```
+
+```{r}
+modelo_iv1 <- ivreg(income2020 ~ juntas | ext, data = data_EH)
+modelo_iv2 <- ivreg(income2020 ~ juntas + lat + lon + alt | ext + lat + lon + alt, data = data_EH)
+modelo_iv3 <- ivreg(income2020 ~ juntas + lat + lon + alt + por_ind | ext + lat + lon + alt + por_ind, data = data_EH)
+```
+
+```{r}
+stargazer(modelo_iv1, modelo_iv2, modelo_iv3, type = "text",
+          title = "IV - Results",
+          align = TRUE,
+          header = FALSE,
+          dep.var.labels.include = FALSE,
+          covariate.labels = c("Juntas", "Latitude", "Longitude", "Altitude", "Percentage Indigenous"),
+          omit.stat = c("LL", "ser"),
+          model.names = FALSE,
+          omit = "Constant",
+          add.lines = list(c("Mean of Dependent Variable", format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4), format(mean_dependent_var, digits=4))))
+```
+
+# Conclusion
+
+The positive and statistically significant coefficients for Juntas Auxiliares across different model specifications and within the OLS and the IV approach, provides solid evidence to argue that local institutions can be effective in driving economic development.
+
+Overall, the research suggests that Juntas Auxiliares play an influential role in municipal governance and economic outcomes, validating their importance in Puebla's social and economic framework. The examination of the exogeneity of territorial extent as an instrument though 31 falsification tests solidify these findings, offering a robust argument for the selected econometric approach.
+
+The comprehensive data, the careful application of statistical methods, and the discussion of potential limitations all contribute to the strength of this study's conclusions: is better to build bridges. 
+
+
+
+
+
